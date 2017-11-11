@@ -6,42 +6,45 @@ import time
 
 DATA_TYPE = 0
 CATEGORIES = 1
-REVIEW_ID = 1
-STARS = 2
+STARS = 1
 
 class CountBusinessStarsPerCategory(MRJob):
     INPUT_PROTOCOL = JSONValueProtocol
     OUTPUT_PROTOCOL = CsvProtocol
 
-    def initial_map(self, _, line):
+    def map_business_id_with_review_or_categories(self, _, line):
         data = line
         if data.get("user_id"):
             # business_id, ["review", review_id, stars]
-            yield data["business_id"], ["review", data["review_id"], data["stars"]]
+            yield data["business_id"], ["review", data["stars"]]
         elif data.get("business_id"):
             # business_id, ["business", categories]
             yield data["business_id"], ["business", data["categories"]]
 
-    def reducer_join(self, key, values):
+    def reduce_business_information(self, key, values):
         business_raw_information = list(values)
-        business_reviews = []
+        business_stars = []
         business_categories = ""
         for business_information in business_raw_information:
             if business_information[DATA_TYPE] == "business":
                 business_categories = business_information[CATEGORIES]
             elif business_information[DATA_TYPE] == "review":
-                business_reviews.append([business_information[REVIEW_ID], business_information[STARS]])
-        for review in business_reviews:
+                business_stars.append(business_information[STARS])
+        for star in business_stars:
             for category in business_categories:
-                review_id = review[0]
-                review_stars = review[1]
-                yield ("out", [review_id, category, review_stars])
+                yield (category, star)
+
+    def reduce_by_categories(self, key, values):
+        yield "out", [key, list(values)]
 
     def steps(self):
         return [
             MRStep(
-                mapper=self.initial_map,
-                reducer=self.reducer_join
+                mapper=self.map_business_id_with_review_or_categories,
+                reducer=self.reduce_business_information
+                ),
+            MRStep(
+                reducer=self.reduce_by_categories
                 )
             ]
 
